@@ -5,9 +5,8 @@ from typing import Tuple
 from termcolor import cprint
 from glob import glob
 
-
 class ThingsMEGDataset(torch.utils.data.Dataset):
-    def __init__(self, split: str, data_dir: str = "data") -> None:
+    def __init__(self, split: str, data_dir: str = "data", augment: bool = False) -> None:
         super().__init__()
         assert split in ["train", "val", "test"], f"Invalid split: {split}"
 
@@ -15,6 +14,7 @@ class ThingsMEGDataset(torch.utils.data.Dataset):
         self.data_dir = data_dir
         self.num_classes = 1854
         self.num_samples = len(glob(os.path.join(data_dir, f"{split}_X", "*.npy")))
+        self.augment = augment
 
     def __len__(self) -> int:
         return self.num_samples
@@ -28,6 +28,10 @@ class ThingsMEGDataset(torch.utils.data.Dataset):
 
         # Apply baseline correction
         X = self.apply_baseline_correction(X)
+
+        # Apply data augmentation
+        if self.augment:
+            X = self.apply_augmentation(X)
 
         if self.split in ["train", "val"]:
             y_path = os.path.join(self.data_dir, f"{self.split}_y", str(i).zfill(5) + ".npy")
@@ -51,6 +55,17 @@ class ThingsMEGDataset(torch.utils.data.Dataset):
             corrected_X[channel, :] = segment - baseline_value
 
         return corrected_X
+
+    def apply_augmentation(self, X):
+        # Apply noise
+        noise = torch.normal(0, 0.01, X.shape)
+        X = X + noise
+
+        # Apply time shift
+        shift = np.random.randint(-10, 10)
+        X = torch.roll(X, shift, dims=-1)
+
+        return X
 
     @property
     def num_channels(self) -> int:

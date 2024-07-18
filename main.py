@@ -10,7 +10,7 @@ from termcolor import cprint
 from tqdm import tqdm
 
 from src.datasets import ThingsMEGDataset
-from src.models import BasicConvClassifier
+from src.models import ImprovedConvClassifier
 from src.utils import set_seed
 
 
@@ -27,7 +27,7 @@ def run(args: DictConfig):
     # ------------------
     loader_args = {"batch_size": args.batch_size, "num_workers": args.num_workers}
     
-    train_set = ThingsMEGDataset("train", args.data_dir)
+    train_set = ThingsMEGDataset("train", args.data_dir, augment=True)  # データ拡張を有効にする
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True, **loader_args)
     val_set = ThingsMEGDataset("val", args.data_dir)
     val_loader = torch.utils.data.DataLoader(val_set, shuffle=False, **loader_args)
@@ -39,14 +39,18 @@ def run(args: DictConfig):
     # ------------------
     #       Model
     # ------------------
-    model = BasicConvClassifier(
-        train_set.num_classes, train_set.seq_len, train_set.num_channels
+    model = ImprovedConvClassifier(
+        train_set.num_classes, train_set.seq_len, train_set.num_channels, p_drop=args.p_drop
     ).to(args.device)
 
     # ------------------
     #     Optimizer
     # ------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    
+    # Scheduler to adjust learning rate
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.1)
+
 
     # Early stopping parameters
     patience = 10
@@ -93,6 +97,8 @@ def run(args: DictConfig):
             val_acc.append(accuracy(y_pred, y).item())
 
         avg_val_loss = np.mean(val_loss)
+        scheduler.step(avg_val_loss)  # Adjust learning rate based on validation loss
+
         print(f"Epoch {epoch+1}/{args.epochs} | train loss: {np.mean(train_loss):.3f} | train acc: {np.mean(train_acc):.3f} | val loss: {avg_val_loss:.3f} | val acc: {np.mean(val_acc):.3f}")
         
         torch.save(model.state_dict(), os.path.join(logdir, "model_last.pt"))
@@ -106,6 +112,8 @@ def run(args: DictConfig):
             patience_counter = 0
         else:
             patience_counter += 1
+            print(f"No improvement in validation loss for {patience_counter} epochs")
+
 
         if patience_counter >= patience:
             print("Early stopping triggered.")
